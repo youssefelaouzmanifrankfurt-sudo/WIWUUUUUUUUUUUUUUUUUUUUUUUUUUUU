@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 
-// Wir nutzen den Port zur Identifikation, das ist sicherer als Ordner-Checks
+// Wir nutzen den Port zur Identifikation (definiert in den .bat Dateien)
 // Port 3000 = IMMER Master (C: Laufwerk)
 // Andere Ports = IMMER Client (Z: Laufwerk)
 const PORT = process.env.PORT || 3000;
@@ -39,14 +39,14 @@ function ensureFile(filePath, defaultData = []) {
 
     if (!fs.existsSync(filePath)) {
         if (IS_MASTER) {
-            // Master erstellt die Datei
+            // Master erstellt die leere Datei
             try {
                 fs.writeFileSync(filePath, JSON.stringify(defaultData, null, 2));
             } catch (e) {
                 console.error("[STORAGE] Fehler beim Erstellen von " + filePath, e.message);
             }
         } else {
-            // Client wartet (darf nicht erstellen, sonst Konfliktpotenzial)
+            // Client wartet (darf nicht erstellen, um Konflikte zu vermeiden)
             console.warn(`[STORAGE] Warte auf Master-DB: ${filePath} nicht gefunden.`);
             return defaultData; 
         }
@@ -63,7 +63,7 @@ function ensureFile(filePath, defaultData = []) {
 
 function saveFile(filePath, data) {
     try {
-        // Backup Logic (nur Master, 5% Wahrscheinlichkeit)
+        // Backup Logic (nur Master macht Backups, ca. bei jedem 20. Speichern)
         if (IS_MASTER && Math.random() > 0.95) {
             fs.copyFileSync(filePath, filePath + '.bak');
         }
