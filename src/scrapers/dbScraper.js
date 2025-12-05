@@ -4,9 +4,9 @@ const logger = require('../utils/logger');
 const { parseListInBrowser, parseDetailInBrowser } = require('./db/parsers');
 
 // ⚡ PERFORMANCE EINSTELLUNGEN
-const CONCURRENT_TABS = 5;       // Mehr Tabs = Schneller (aber mehr CPU)
-const PAGE_TIMEOUT = 15000;      // Nach 15sek abbrechen, wenn Seite hängt
-const MIN_DELAY = 100;           // Nur 100ms Pause (sehr schnell)
+const CONCURRENT_TABS = 5;       // 5 Tabs gleichzeitig
+const PAGE_TIMEOUT = 30000;      // ERHÖHT: 30sek Timeout (statt 15s)
+const MIN_DELAY = 150;           // Leicht erhöht für Stabilität
 
 async function forceVisibility(page) {
     try {
@@ -27,7 +27,7 @@ async function scrapeMyAds(existingAds = [], progressCallback) {
         return null;
     }
 
-    logger.log('info', `🚀 Turbo-Scan gestartet (${CONCURRENT_TABS} Worker)...`);
+    logger.log('info', `🚀 Turbo-Scan gestartet (${CONCURRENT_TABS} Worker, Auto-Retry aktiv)...`);
     
     try {
         if (!mainPage.url().includes('m-meine-anzeigen')) {
@@ -116,34 +116,52 @@ async function scrapeMyAds(existingAds = [], progressCallback) {
                         const targetAd = queue.shift();
                         if (!targetAd) break; 
 
-                        try {
-                            // Timeout setzen, damit er nicht ewig hängt
-                            await page.goto(targetAd.url, { waitUntil: 'domcontentloaded', timeout: PAGE_TIMEOUT });
-                            
-                            // Schnell parsen
-                            const details = await page.evaluate(parseDetailInBrowser);
-                            
-                            if (details) {
-                                if (details.description) targetAd.description = details.description;
-                                if (details.images && details.images.length > 0) targetAd.images = details.images;
-                                if (details.cleanTitle && details.cleanTitle.length > 3) targetAd.title = details.cleanTitle;
-                                if (details.uploadDate) targetAd.uploadDate = details.uploadDate;
-                            }
-                            
-                            // Nur sehr kurze Pause
-                            await new Promise(r => setTimeout(r, MIN_DELAY));
+                        // RETRY LOOP (NEU)
+                        let attempts = 0;
+                        const maxAttempts = 2; // 1 Normal + 1 Retry
+                        let success = false;
 
-                        } catch (e) {
-                            // Timeout Fehler ignorieren, weitermachen!
-                            if(e.message.includes('timeout') || e.message.includes('callFunctionOn')) {
-                                logger.log('warn', `   [W${workerId}] Timeout bei ${targetAd.id} - Überspringe.`);
-                            } else {
-                                logger.log('warn', `   [W${workerId}] Fehler: ${e.message}`);
+                        while (attempts < maxAttempts && !success) {
+                            attempts++;
+                            try {
+                                // Timeout setzen, damit er nicht ewig hängt
+                                await page.goto(targetAd.url, { waitUntil: 'domcontentloaded', timeout: PAGE_TIMEOUT });
+                                
+                                // Schnell parsen
+                                const details = await page.evaluate(parseDetailInBrowser);
+                                
+                                if (details) {
+                                    if (details.description) targetAd.description = details.description;
+                                    if (details.images && details.images.length > 0) targetAd.images = details.images;
+                                    if (details.cleanTitle && details.cleanTitle.length > 3) targetAd.title = details.cleanTitle;
+                                    if (details.uploadDate) targetAd.uploadDate = details.uploadDate;
+                                }
+                                
+                                success = true; // Markieren als erfolgreich, um Loop zu verlassen
+
+                            } catch (e) {
+                                // Fehlerbehandlung
+                                const isTimeout = e.message.includes('timeout') || e.message.includes('callFunctionOn');
+                                
+                                if (attempts < maxAttempts) {
+                                    logger.log('warn', `   [W${workerId}] ⚠️ Timeout bei ${targetAd.id}. Starte 2. Versuch...`);
+                                    await new Promise(r => setTimeout(r, 2000)); // Kurze Pause vor Retry
+                                } else {
+                                    // Wenn auch der letzte Versuch fehlschlägt
+                                    if(isTimeout) {
+                                        logger.log('warn', `   [W${workerId}] ❌ Timeout bei ${targetAd.id} nach ${attempts} Versuchen - Überspringe.`);
+                                    } else {
+                                        logger.log('warn', `   [W${workerId}] ❌ Fehler bei ${targetAd.id}: ${e.message}`);
+                                    }
+                                }
+                                
+                                // Seite resetten für sauberen nächsten Versuch
+                                try { await page.goto('about:blank'); } catch(err){}
                             }
-                            
-                            // Seite könnte kaputt sein, neu laden
-                            try { await page.goto('about:blank'); } catch(err){}
                         }
+
+                        // Nur sehr kurze Pause nach Erfolg
+                        if(success) await new Promise(r => setTimeout(r, MIN_DELAY));
                     }
                 } catch(err) {
                     logger.log('error', `Worker ${workerId} abgestürzt: ${err.message}`);
@@ -169,7 +187,7 @@ async function scrapeMyAds(existingAds = [], progressCallback) {
             if (nextBtn && !(await mainPage.evaluate(el => el.disabled, nextBtn))) {
                 await mainPage.evaluate(el => el.scrollIntoView(), nextBtn);
                 await Promise.all([
-                    mainPage.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(()=>{}),
+                    mainPage.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(()=>{}),
                     nextBtn.click()
                 ]);
                 pageNum++;

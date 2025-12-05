@@ -70,30 +70,62 @@ async function fillAdForm(product) {
     // Max 15 Bilder laden
     for (let i = 0; i < Math.min(allImages.length, 15); i++) {
         if(i > 0) await new Promise(r => setTimeout(r, 200)); 
-        const path = await downloader.downloadImage(allImages[i], `upload_${Date.now()}_${i}.jpg`);
-        if (path) filePaths.push(path);
+        const filePath = await downloader.downloadImage(allImages[i], `upload_${Date.now()}_${i}.jpg`);
+        if (filePath) filePaths.push(filePath);
     }
 
     // --- 3. TEXT & PREIS VORBEREITUNG ---
     const settings = storage.loadSettings();
     const templates = settings.templates || {};
-    const template = templates["Default"] || "(titel)\n\n(beschreibung)\n\nDetails:\n(technischedaten)";
+    
+    // Standard-Template (Falls keins in Settings definiert ist)
+    // HINWEIS: Wir entfernen hier "Details:" aus dem Hardcode und fügen es dynamisch hinzu
+    let template = templates["Default"] || "(titel)\n\n(beschreibung)\n\n(technischedaten)";
     
     let rawDesc = product.description || "Details folgen.";
-    rawDesc = rawDesc.replace(/Buy24.*?$/s, "").trim(); 
-    rawDesc = rawDesc.replace(/Industriestraße.*?$/s, "").trim();
+    
+    // 🔥 FIX: Diese Zeilen haben den Footer (Adresse etc.) abgeschnitten. 
+    // Ich habe sie entfernt, damit deine vollständige Beschreibung erhalten bleibt.
+    // rawDesc = rawDesc.replace(/Buy24.*?$/s, "").trim(); 
+    // rawDesc = rawDesc.replace(/Industriestraße.*?$/s, "").trim();
 
+    // Technische Daten aufbereiten
     let techDataString = "";
-    if (product.techData && Array.isArray(product.techData)) techDataString = product.techData.join("\n");
-    else if (product.features && Array.isArray(product.features)) {
+    if (product.techData && Array.isArray(product.techData)) {
+        techDataString = product.techData.join("\n");
+    } else if (product.features && Array.isArray(product.features)) {
         techDataString = product.features.map(f => (typeof f === 'string') ? f : (f.text || "")).filter(t=>t).join("\n");
     }
 
+    // Bauen wir den Tech-Block: Nur wenn Daten da sind, fügen wir "Details:" hinzu
+    let finalTechBlock = "";
+    if (techDataString && techDataString.trim().length > 0) {
+        // Falls im Template schon "Details:" steht, fügen wir es hier nicht nochmal hinzu, 
+        // aber meistens ist es sauberer, es hier zu steuern.
+        finalTechBlock = "Details:\n" + techDataString;
+    }
+
+    // Template füllen
     let finalDesc = template
         .replace(/\(titel\)/g, product.title)
         .replace(/\(preis\)/g, product.price || "VB")
-        .replace(/\(beschreibung\)/g, rawDesc)
-        .replace(/\(technischedaten\)/g, techDataString); 
+        .replace(/\(beschreibung\)/g, rawDesc);
+
+    // Spezialbehandlung für (technischedaten) und alte Templates
+    if (finalDesc.includes('(technischedaten)')) {
+        finalDesc = finalDesc.replace(/\(technischedaten\)/g, finalTechBlock);
+    } else {
+        // Fallback: Wenn der Platzhalter fehlt, hängen wir es unten dran (aber nur wenn Daten da sind)
+        if (finalTechBlock) {
+            finalDesc += "\n\n" + finalTechBlock;
+        }
+    }
+
+    // Aufräumen: Falls das Template festes "Details:" hatte und wir keine Daten hatten
+    // (Regex sucht nach "Details:" am Zeilenende oder gefolgt von Leerzeichen am Ende)
+    if (!techDataString) {
+        finalDesc = finalDesc.replace(/Details:\s*$/g, "");
+    }
     
     if(finalDesc.length > 4000) finalDesc = finalDesc.substring(0, 3990);
 

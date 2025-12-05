@@ -14,43 +14,21 @@
     <link rel="stylesheet" href="/css/lager.css">
     
     <style>
-        /* Styles für die Preis-Suche Liste */
-        .price-result-list {
-            max-height: 200px;
-            overflow-y: auto;
-            margin-bottom: 15px;
-            background: #0f172a;
-            border-radius: 8px;
-            display: none; /* Standardmäßig versteckt */
-            border: 1px solid #334155;
-        }
-        .price-item {
-            display: flex;
-            align-items: center;
-            padding: 8px;
-            border-bottom: 1px solid #334155;
-            cursor: pointer;
-        }
+        .price-result-list { max-height: 200px; overflow-y: auto; margin-bottom: 15px; background: #0f172a; border-radius: 8px; display: none; border: 1px solid #334155; }
+        .price-item { display: flex; align-items: center; padding: 8px; border-bottom: 1px solid #334155; cursor: pointer; }
         .price-item:hover { background: #1e293b; }
         .price-item img { width: 40px; height: 40px; object-fit: contain; margin-right: 10px; background: white; border-radius: 4px; }
         .price-source { font-size: 0.7rem; text-transform: uppercase; font-weight: bold; padding: 2px 5px; border-radius: 4px; margin-right: 5px; }
-        
-        /* Quellen Farben */
         .src-otto { background: #ff0000; color: white; }
         .src-baur { background: #004e9e; color: white; }
         .src-idealo { background: #f59e0b; color: black; }
         .src-amazon { background: #ff9900; color: black; }
-        
-        /* Ampel Styles */
         .traffic-light { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 5px; }
         .light-green { background-color: #10b981; box-shadow: 0 0 5px #10b981; }
         .light-yellow { background-color: #f59e0b; animation: pulse 2s infinite; }
         .light-red { background-color: #ef4444; }
         .light-grey { background-color: #64748b; opacity: 0.5; }
-        
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
-
-        /* Scanner Bereich */
         #reader { width: 100%; border-radius: 8px; overflow: hidden; }
     </style>
 </head>
@@ -64,6 +42,7 @@
                 <h1 style="margin:0;">📦 Smart Lager</h1>
                 <div style="color:#94a3b8; font-size:0.9rem;">Bestand & Preise</div>
             </div>
+           
             <div class="stats-bar">
                 <div class="stat-item">
                     <span class="stat-val" id="stat-total">0</span>
@@ -79,13 +58,10 @@
 
         <div class="controls-area" style="display:flex; gap:10px; flex-wrap:wrap;">
             <button class="btn-action btn-add" onclick="openCreateModal()"><span>➕</span> Neu & Preis-Check</button>
-            
             <button class="btn-action" onclick="window.startQRScanner()" style="background:#3b82f6;"><span>📱</span> QR-Scan</button>
-            
             <button class="btn-action btn-scan" onclick="window.triggerCamera()"><span>📸</span> Modell-Scan</button>
             
             <input type="file" id="cam-input" accept="image/*" capture="environment" onchange="window.startCropping(this)" style="display:none;">
-            
             <input type="text" id="inp-search" class="search-input" placeholder="Suchen..." onkeyup="window.filterStock()" style="flex:1;">
         </div>
 
@@ -135,7 +111,8 @@
                 <div class="form-group"><label class="form-label">Menge</label><input type="number" id="inp-qty" class="form-input" value="1"></div>
             </div>
 
-            <div class="modal-actions">
+            <div class="modal-actions" style="display:flex; justify-content: flex-end; align-items: center; gap: 10px;">
+                <button onclick="window.deleteItem()" class="btn-mini" style="background:#ef4444; color:white; margin-right:auto;">🗑️ Löschen</button>
                 <button onclick="closeAllModals()" class="btn-mini">Abbrechen</button>
                 <button onclick="saveItem()" class="btn-primary">Speichern</button>
             </div>
@@ -167,7 +144,8 @@
     </div>
     
     <%- include('partials/match_modals') %> 
-    
+
+    <script src="/js/lager/ui.js"></script>
     <script src="/js/lager/printer.js"></script>
     <script src="/js/lager/scanner.js"></script>
     <script src="/js/lager/main.js"></script>

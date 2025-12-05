@@ -37,7 +37,6 @@ class StockService {
         return stock;
     }
 
-    // --- HIER WURDEN DIE FELDER ERGÄNZT ---
     createNewItem(name, details = {}) {
         let stock = this._load();
         
@@ -48,13 +47,13 @@ class StockService {
             location: details.location || "Lager",
             
             purchasePrice: parseFloat(details.purchasePrice) || 0,
-            marketPrice: parseFloat(details.marketPrice) || 0, // NEU
+            marketPrice: parseFloat(details.marketPrice) || 0,
             
-            sku: details.sku || ("SKU-" + Date.now()), // NEU
+            sku: details.sku || ("SKU-" + Date.now()),
             minQuantity: parseInt(details.minQuantity) || 0,
             
-            sourceUrl: details.sourceUrl || "",   // NEU: WICHTIG FÜR SCRAPER
-            sourceName: details.sourceName || "", // NEU
+            sourceUrl: details.sourceUrl || "",
+            sourceName: details.sourceName || "",
             
             linkedAdId: details.linkedAdId || null,
             image: details.image || null,
@@ -65,7 +64,7 @@ class StockService {
         
         stock.push(newItem);
         this._save(stock);
-        logger.log('info', `Neu im Lager: ${name} (URL: ${newItem.sourceUrl ? 'Ja' : 'Nein'})`);
+        logger.log('info', `Neu im Lager: ${name}`);
         return stock;
     }
 
@@ -90,11 +89,14 @@ class StockService {
             if (data.purchasePrice) item.purchasePrice = parseFloat(data.purchasePrice);
             if (data.quantity) item.quantity = parseInt(data.quantity);
             
-            // Auch beim Update speichern!
             if (data.sku) item.sku = data.sku;
             if (data.marketPrice) item.marketPrice = data.marketPrice;
             if (data.sourceUrl) item.sourceUrl = data.sourceUrl;
             if (data.sourceName) item.sourceName = data.sourceName;
+            
+            // WICHTIG: Hier fehlte vorher das Speichern der Verknüpfung!
+            if (data.linkedAdId !== undefined) item.linkedAdId = data.linkedAdId;
+            if (data.image !== undefined) item.image = data.image;
             
             this._save(stock);
         }
@@ -114,9 +116,15 @@ class StockService {
 
     delete(id) {
         let stock = this._load();
+        const initialLength = stock.length;
         stock = stock.filter(i => i.id !== id);
-        this._save(stock);
-        return stock;
+        
+        // Nur speichern, wenn wirklich was gelöscht wurde
+        if (stock.length !== initialLength) {
+            this._save(stock);
+            return true;
+        }
+        return false;
     }
 
     _save(data) { storage.saveStock(data); }

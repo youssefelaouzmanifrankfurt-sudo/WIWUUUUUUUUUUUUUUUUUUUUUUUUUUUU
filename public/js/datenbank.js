@@ -83,9 +83,10 @@ function renderGrid(items) {
                 <span style="margin-left:auto;">📅 ${item.uploadDate || '-'}</span>
             </div>
             <div class="card-actions">
+                <button class="btn-icon" onclick="reUpItem('${item.id}')" title="Re-Upload (Duplizieren)">🚀</button>
+                
                 <button class="btn-icon" onclick="showQR('${item.id}', '${item.title}')" title="QR Code">📱</button>
                 <button class="btn-icon" onclick="openLink('${item.url}')" title="Öffnen">🌍</button>
-                <button class="btn-icon" onclick="reUpItem('${item.id}')" title="Re-Up">🚀</button>
                 <button class="btn-icon" onclick="editItem('${item.id}')" title="Bearbeiten">✏️</button>
                 <button class="btn-icon btn-del" onclick="deleteItem('${item.id}')" title="Löschen">🗑</button>
             </div>
@@ -94,7 +95,7 @@ function renderGrid(items) {
     });
 }
 
-// --- FILTER LOGIK (NEU: MIT DATUM) ---
+// --- FILTER LOGIK ---
 function filterAds() {
     const term = document.getElementById('inp-search').value.toLowerCase();
     const status = document.getElementById('filter-status').value;
@@ -122,7 +123,6 @@ function filterAds() {
         let matchTime = true;
         if (timeFilter !== 'all') {
             const itemDate = parseDate(item.uploadDate);
-            // Wenn kein Datum vorhanden, ignorieren oder rausfiltern (hier: rausfiltern)
             if (itemDate === 0) {
                 matchTime = false;
             } else {
@@ -169,7 +169,15 @@ function updateStats(items) {
 window.startScrape = () => { if(confirm('Scan starten?')) socket.emit('start-db-scrape'); };
 window.deleteInactiveAds = () => { if(confirm('Alle inaktiven löschen?')) socket.emit('delete-inactive-ads'); };
 window.deleteItem = (id) => { if(confirm('Löschen?')) socket.emit('delete-db-item', id); };
-window.reUpItem = (id) => { const ip = prompt("Proxy IP (optional):", ""); socket.emit('re-up-item', { id, targetIp: ip }); };
+
+// RE-UPLOAD (Duplizieren)
+window.reUpItem = (id) => { 
+    if(confirm('Anzeige als neuen Entwurf duplizieren?')) {
+        const ip = prompt("Proxy IP (optional, sonst leer lassen):", ""); 
+        socket.emit('re-up-item', { id, targetIp: ip }); 
+    }
+};
+
 window.openLink = (url) => { if(url && url.startsWith('http')) window.open(url, '_blank'); else alert("Kein Link."); };
 
 // EDIT MODAL

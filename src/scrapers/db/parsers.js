@@ -28,7 +28,7 @@ function parseListInBrowser() {
             const fm = fullText.match(/(\d+)\s*mal gemerkt/); if(fm) favs = fm[1];
             const im = fullText.match(/(\d+)\s*Anfragen/); if(im) inquiries = im[1];
 
-            // --- 3. STATUS CHECK (NEU: DELETED ERKENNUNG) ---
+            // --- 3. STATUS CHECK ---
             let status = 'ACTIVE';
             
             const footerItems = Array.from(item.querySelectorAll('footer ul li'));
@@ -46,9 +46,7 @@ function parseListInBrowser() {
             if (deactivateButtonVisible) status = 'ACTIVE';
             else if (activateButtonVisible) status = 'PAUSED';
 
-            // Wenn "Gelöscht" im Titel steht oder ein Badge da ist
             if (rawTitle.includes('Gelöscht') || fullText.includes('Gelöscht') || fullText.includes('Deaktiviert')) {
-                // Manche sind nur deaktiviert, manche gelöscht. Wir prüfen genauer:
                 if(rawTitle.includes('Gelöscht')) status = 'DELETED';
                 else if(rawTitle.includes('Deaktiviert')) status = 'PAUSED';
             }
@@ -91,8 +89,8 @@ function parseListInBrowser() {
                 views, 
                 favorites: favs, 
                 inquiries, 
-                status: status, // Neuer Status String
-                active: (status === 'ACTIVE'), // Kompatibilität
+                status: status, 
+                active: (status === 'ACTIVE'), 
                 features: activeFeatures, 
                 uploadDate: null,
                 description: "" 
@@ -103,7 +101,7 @@ function parseListInBrowser() {
 }
 
 /**
- * Liest die DETAIL-Seite
+ * Liest die DETAIL-Seite (Optimiert für Beschreibung)
  */
 function parseDetailInBrowser() {
     const res = { 
@@ -114,64 +112,75 @@ function parseDetailInBrowser() {
     };
 
     try {
-        // 1. Datum
+        // --- A) Datum aus Text ---
         const txt = document.body.innerText;
         const m = txt.match(/(\d{1,2}\.\d{1,2}\.\d{4})/);
         if(m) res.uploadDate = m[1];
 
-        // 2. Beschreibung
+        // --- B) Beschreibung & Bilder (DOM) ---
+        // Versuch 1: Klassischer Selektor
         const descEl = document.querySelector('#viewad-description-text');
         if(descEl) res.description = descEl.innerText.trim();
 
-        // 3. Bilder
+        // Bilder aus Galerie
         const galleryImgs = document.querySelectorAll('.galleryimage-element img');
         galleryImgs.forEach(img => {
             const fullSrc = img.getAttribute('data-imgsrc') || img.src;
             if(fullSrc && !res.images.includes(fullSrc)) res.images.push(fullSrc);
         });
 
-        // 3b. JSON-LD Fallback
-        if (res.images.length === 0) {
-            const scripts = document.querySelectorAll('script[type="application/ld+json"]');
-            scripts.forEach(s => {
-                try {
-                    const jsonText = s.innerText;
-                    if (!jsonText) return;
-                    const data = JSON.parse(jsonText);
-                    if (!data) return;
-                    const entries = Array.isArray(data) ? data : [data];
-                    entries.forEach(entry => {
-                        if (!entry) return;
-                        if (entry.image) {
-                            const imgs = Array.isArray(entry.image) ? entry.image : [entry.image];
-                            imgs.forEach(url => {
-                                if(url && typeof url === 'string' && !res.images.includes(url)) {
-                                    res.images.push(url);
-                                }
-                            });
-                        }
-                    });
-                } catch(e){}
-            });
-        }
+        // --- C) JSON-LD (Die Geheimwaffe für fehlende Daten) ---
+        // Oft stehen Beschreibung und Bilder sauber im JSON, auch wenn das DOM zickt.
+        const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+        scripts.forEach(s => {
+            try {
+                const jsonText = s.innerText;
+                if (!jsonText) return;
+                const data = JSON.parse(jsonText);
+                const entries = Array.isArray(data) ? data : [data];
+                
+                entries.forEach(entry => {
+                    if (!entry) return;
+                    
+                    // 1. Beschreibung nachladen falls leer
+                    if ((!res.description || res.description.length < 10) && entry.description) {
+                         // HTML Entities decodieren (einfacher Trick)
+                         const tempTextArea = document.createElement('textarea');
+                         tempTextArea.innerHTML = entry.description;
+                         res.description = tempTextArea.value;
+                    }
 
-        // 4. Titel bereinigen (WICHTIG für Re-Upload!)
+                    // 2. Bilder nachladen
+                    if (entry.image) {
+                        const imgs = Array.isArray(entry.image) ? entry.image : [entry.image];
+                        imgs.forEach(url => {
+                            if(url && typeof url === 'string' && !res.images.includes(url)) {
+                                res.images.push(url);
+                            }
+                        });
+                    }
+                });
+            } catch(e){}
+        });
+
+        // --- D) Titel bereinigen ---
         const titleEl = document.querySelector('#viewad-title');
         if(titleEl) {
             const clone = titleEl.cloneNode(true);
-            // Entferne Badges wie "Gelöscht", "Deaktiviert", "Reserviert"
             const badges = clone.querySelectorAll('.pvap-reserved-title, .is-hidden');
             badges.forEach(b => b.remove());
             
-            // Text säubern: Entferne führende "Gelöscht •" oder "Deaktiviert •" Strings
             let clean = clone.innerText.trim();
             clean = clean.replace(/^(Gelöscht|Deaktiviert|Reserviert)\s*[•|-]\s*/i, '');
-            
             res.cleanTitle = clean;
+        } else {
+             // Fallback falls Titel-Element fehlt (z.B. Mobilansicht anders)
+             const ogTitle = document.querySelector('meta[property="og:title"]');
+             if(ogTitle) res.cleanTitle = ogTitle.content.replace(/^(Gelöscht|Deaktiviert|Reserviert)\s*[•|-]\s*/i, '');
         }
 
     } catch(mainError) {
-        console.error("Parser Error:", mainError);
+        // Fehler silent schlucken, damit der Worker nicht abstürzt
     }
     return res;
 }

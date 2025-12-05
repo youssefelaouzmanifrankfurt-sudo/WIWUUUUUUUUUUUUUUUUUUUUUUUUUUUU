@@ -1,12 +1,11 @@
 // src/socket/stockHandler.js
 const stockService = require('../services/stockService');
 const inventoryService = require('../services/inventoryService');
+const priceService = require('../services/priceService');
+const matchService = require('../services/matchService');
+const importService = require('../services/importService');
 
-const priceService = require('../services/priceService');     // NEU
-const matchService = require('../services/matchService');     // NEU
-const importService = require('../services/importService');   // NEU
-
-// Helper: Bestes Bild finden (Für die Listen-Ansicht hier noch benötigt)
+// Helper: Bestes Bild finden
 function getBestImage(adItem) {
     if (!adItem) return null;
     if (Array.isArray(adItem.images) && adItem.images.length > 0) return adItem.images[0];
@@ -17,7 +16,7 @@ function getBestImage(adItem) {
 
 module.exports = (io, socket) => {
     
-    // 1. LAGER ABFRUFEN (Mit Ampel Logic)
+    // 1. LAGER ABFRUFEN
     socket.on('get-stock', () => {
         const stock = stockService.getAll();
         const inventory = inventoryService.getAll();
@@ -32,8 +31,8 @@ module.exports = (io, socket) => {
             if (item.linkedAdId && inventoryMap.has(item.linkedAdId)) {
                 linkedAd = inventoryMap.get(item.linkedAdId);
             } else if (item.title) {
-                // Namens-Match (Fallback)
-                linkedAd = inventory.find(ad => ad.title.toLowerCase() === item.title.toLowerCase());
+                // Fallback: Namens-Match
+                linkedAd = inventory.find(ad => ad.title && ad.title.toLowerCase() === item.title.toLowerCase());
             }
 
             if (linkedAd) {
@@ -61,19 +60,24 @@ module.exports = (io, socket) => {
         socket.emit('update-stock', enrichedStock);
     });
 
-    // 2. PREIS CHECK (Jetzt über Service)
+    // 2. PREIS CHECK
     socket.on('search-price-sources', async (query) => {
-        const results = await priceService.searchMarketPrices(query);
-        socket.emit('price-search-results', results);
+        console.log(`[Stock] Suche Preise für: ${query}`);
+        try {
+            const results = await priceService.searchMarketPrices(query);
+            socket.emit('price-search-results', results);
+        } catch (e) {
+            console.error(e);
+            socket.emit('price-search-results', []);
+        }
     });
 
-    // 3. MATCH SUCHE (Jetzt über Service)
+    // 3. MATCH SUCHE
     socket.on('request-db-match', (stockId) => {
         const item = stockService.getAll().find(i => i.id === stockId);
         if (!item) return;
 
         const candidates = matchService.findMatchesForStockItem(item.title);
-        
         socket.emit('db-match-result', {
             found: true, 
             stockId: stockId,
@@ -81,20 +85,25 @@ module.exports = (io, socket) => {
         });
     });
 
-    // 4. SMART IMPORT (Jetzt über Service)
+    // 4. SMART IMPORT
     socket.on('auto-create-ad', async (stockId) => {
         const item = stockService.getAll().find(i => i.id === stockId);
         if (!item) return;
 
-        await importService.createImportFromStock(item);
-
-        io.emit('reload-imported'); 
-        socket.emit('export-success', "In die Ablage verschoben! Bitte dort prüfen & veröffentlichen.");
+        socket.emit('export-progress', "Starte Import...");
+        try {
+            await importService.createImportFromStock(item);
+            io.emit('reload-imported'); 
+            socket.emit('export-success', "Erfolgreich in Ablage importiert.");
+        } catch(e) {
+            socket.emit('export-error', e.message);
+        }
     });
 
-    // 5. CRUD AKTIONEN (Bleibt schlank via stockService)
+    // 5. CRUD AKTIONEN
     socket.on('create-new-stock', (data) => {
-        const sku = data.sku || ("SKU-" + Math.floor(Math.random() * 10000));
+        console.log("[Stock] Neu:", data.title);
+        const sku = data.sku || ("LAGER-" + Math.floor(Math.random() * 10000));
         stockService.createNewItem(data.title, { 
             ...data,
             sku: sku,
@@ -109,14 +118,26 @@ module.exports = (io, socket) => {
         io.emit('force-reload-stock'); 
     });
 
+    // --- HIER WAR DAS PROBLEM BEIM LÖSCHEN ---
     socket.on('delete-stock-item', (id) => {
+        console.log(`[Stock] Lösche Item ID: ${id}`);
         const item = stockService.getAll().find(i => i.id === id);
+        
+        // Falls verknüpft, Inventar updaten
         if (item && item.linkedAdId) {
+            console.log(`[Stock] Löse Verknüpfung zu Anzeige ${item.linkedAdId}`);
             inventoryService.removeFromStock(item.linkedAdId);
             io.emit('update-db-list', inventoryService.getAll());
         }
-        stockService.delete(id);
-        io.emit('force-reload-stock');
+
+        // Löschen durchführen
+        const success = stockService.delete(id);
+        if(success) {
+            console.log("[Stock] Erfolgreich gelöscht.");
+            io.emit('force-reload-stock'); // Client aktualisieren
+        } else {
+            console.warn("[Stock] Löschen fehlgeschlagen (ID nicht gefunden).");
+        }
     });
 
     socket.on('update-stock-qty', (data) => {
@@ -153,6 +174,7 @@ module.exports = (io, socket) => {
 
     // 7. SCAN
     socket.on('check-scan', (query) => {
+        console.log("[Stock] Scan Check:", query);
         const stockItem = stockService.findInStock(query);
         if (stockItem) {
             const updatedList = stockService.incrementQuantity(stockItem.id);

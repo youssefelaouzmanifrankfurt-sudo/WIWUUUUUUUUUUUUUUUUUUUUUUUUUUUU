@@ -1,23 +1,24 @@
 // public/js/lager.js
 const socket = io();
 window.lastStockItems = [];
-let currentEditId = null;
+window.currentEditId = null;
 let currentCheckId = null;
 
 // --- INIT ---
 socket.on('connect', () => socket.emit('get-stock'));
 socket.on('force-reload-stock', () => socket.emit('get-stock'));
+
 socket.on('update-stock', (items) => {
     window.lastStockItems = items || [];
     renderStock(items);
 });
 
-// --- HELPER: SKU GENERATOR ---
+// --- HELPER ---
 function generateAutoSKU() { 
     return "LAGER-" + Math.floor(1000 + Math.random() * 9000); 
 }
 
-// --- PREIS SUCHE (Otto, Idealo, Amazon, Baur) ---
+// --- SUCHE & IMPORT ---
 window.startPriceSearch = () => {
     const query = document.getElementById('inp-title').value;
     if(query.length < 3) return alert("Bitte Modellnamen eingeben!");
@@ -52,38 +53,25 @@ socket.on('price-search-results', (results) => {
             </div>
             <button class="btn-mini">Übernehmen</button>
         `;
-        
-        // KLICK: Daten übernehmen
         div.onclick = () => {
             document.getElementById('inp-title').value = res.title; 
-            
-            // Preis formatieren
             let priceVal = res.price;
             if(typeof priceVal === 'string') priceVal = parseFloat(priceVal.replace(',', '.'));
-            
             document.getElementById('inp-market-price').value = priceVal.toFixed(2);
-            
-            // 45% Regel
-            const myEk = (priceVal * 0.45).toFixed(2);
-            document.getElementById('inp-price').value = myEk;
-
-            // WICHTIG: URL speichern für späteren Auto-Import
+            document.getElementById('inp-price').value = (priceVal * 0.45).toFixed(2);
             document.getElementById('inp-source-url').value = res.url;
             document.getElementById('inp-source-name').value = res.source;
-
             list.style.display = 'none';
         };
         list.appendChild(div);
     });
 });
 
-// --- MATCH LISTE & AUTO-IMPORT ---
 socket.on('db-match-result', (res) => {
     currentCheckId = res.stockId;
     const listContainer = document.getElementById('match-candidates-list');
     listContainer.innerHTML = ''; 
 
-    // 1. Liste füllen
     if (res.candidates && res.candidates.length > 0) {
         res.candidates.forEach(cand => {
             const score = Math.round(cand.score * 100);
@@ -112,120 +100,46 @@ socket.on('db-match-result', (res) => {
         listContainer.innerHTML = '<div style="padding:30px; text-align:center; color:#64748b;">Keine ähnliche Anzeige gefunden.<br><small>Nutze den Button unten 👇</small></div>';
     }
 
-    // 2. Den festen Button aktivieren
     const btnCreate = document.getElementById('btn-auto-create-ad');
     if(btnCreate) {
         btnCreate.onclick = () => {
-            if(confirm("Soll ein Entwurf automatisch aus den Lager-Daten erstellt werden? (Scraping startet...)")) {
+            if(confirm("Soll ein Entwurf automatisch erstellt werden?")) {
                 socket.emit('auto-create-ad', currentCheckId);
             }
         };
     }
-
     document.getElementById('match-modal').classList.add('open');
 });
 
-// --- FEEDBACK & LADE SCREEN ---
-socket.on('export-progress', (msg) => {
-    closeAllModals(); // Altes Modal weg
-    
-    const modal = document.getElementById('loading-modal');
-    const spinner = document.getElementById('loading-spinner');
-    const btn = document.getElementById('btn-loading-ok');
-    
-    document.getElementById('loading-title').innerText = "Verarbeite...";
-    document.getElementById('loading-text').innerText = msg;
-    document.getElementById('loading-subtext').innerText = "Bitte warten, Daten werden von der Quelle geholt.";
-    
-    spinner.innerText = "⏳";
-    spinner.style.animation = "pulse 1.5s infinite";
-    btn.style.display = 'none'; 
-    
-    modal.classList.add('open');
-});
+// --- FEEDBACK ---
+socket.on('export-progress', (msg) => showLoading("Verarbeite...", msg, true));
+socket.on('export-success', (msg) => showLoading("Erfolg!", msg, false, true));
+socket.on('export-error', (msg) => showLoading("Fehler", msg, false, false));
 
-socket.on('export-success', (msg) => {
+function showLoading(title, text, loading, success = false) {
+    closeAllModals();
     const modal = document.getElementById('loading-modal');
-    const spinner = document.getElementById('loading-spinner');
+    document.getElementById('loading-title').innerText = title;
+    document.getElementById('loading-text').innerText = text;
+    document.getElementById('loading-spinner').innerText = loading ? "⏳" : (success ? "✅" : "❌");
+    
     const btn = document.getElementById('btn-loading-ok');
-    
-    document.getElementById('loading-title').innerText = "Erfolg!";
-    document.getElementById('loading-text').innerText = "In Ablage gespeichert!";
-    document.getElementById('loading-subtext').innerText = msg;
-    
-    spinner.innerText = "✅";
-    spinner.style.animation = "none";
-    
-    btn.style.display = 'block';
-    btn.innerText = "Super -> OK";
+    btn.style.display = loading ? 'none' : 'block';
+    btn.innerText = success ? "OK" : "Schließen";
     btn.onclick = () => closeAllModals();
     
     modal.classList.add('open');
-});
+}
 
-socket.on('export-error', (msg) => {
-    const modal = document.getElementById('loading-modal');
-    document.getElementById('loading-title').innerText = "Fehler";
-    document.getElementById('loading-text').innerText = "Das hat nicht geklappt.";
-    document.getElementById('loading-subtext').innerText = msg;
-    document.getElementById('loading-spinner').innerText = "❌";
-    
-    const btn = document.getElementById('btn-loading-ok');
-    btn.style.display = 'block';
-    btn.innerText = "Schließen";
-    btn.style.background = "#ef4444";
-    btn.onclick = () => closeAllModals();
-    
-    modal.classList.add('open');
-});
-
-// --- QR CODE & DRUCKEN (WICHTIG!) ---
-window.openPrintModal = async (id) => {
-    const item = window.lastStockItems.find(i => i.id === id);
-    if(!item) return;
-
-    // Wir nutzen die SKU für den QR Code, falls vorhanden, sonst ID
-    const codeContent = item.sku || item.id; 
-    
-    try {
-        const res = await fetch(`/api/qr/${encodeURIComponent(codeContent)}`);
-        const data = await res.json();
-        
-        if(data.url) {
-            document.getElementById('print-qr').src = data.url;
-            document.getElementById('print-title').innerText = item.title.substring(0, 30); // Titel kürzen
-            document.getElementById('print-sku').innerText = item.sku || "Keine SKU";
-            
-            document.getElementById('print-modal').classList.add('open');
-        }
-    } catch(e) {
-        alert("Fehler beim QR-Code Generieren");
-    }
-};
-
-window.printLabel = () => {
-    const content = document.getElementById('print-area').innerHTML;
-    const win = window.open('', '', 'height=400,width=400');
-    win.document.write('<html><head><title>Label</title>');
-    win.document.write('<style>body { font-family: sans-serif; text-align: center; } img { width: 100%; max-width: 200px; }</style>');
-    win.document.write('</head><body>');
-    win.document.write(content);
-    win.document.write('</body></html>');
-    win.document.close();
-    win.print();
-};
-
-// --- RESTLICHE FUNKTIONEN (CRUD, Trennen, Scan) ---
+// --- ACTIONS ---
 window.unlinkItem = (id) => {
-    if(confirm("Verbindung zur Anzeige wirklich lösen?")) {
-        socket.emit('unlink-stock-item', id);
-    }
+    if(confirm("Verbindung lösen?")) socket.emit('unlink-stock-item', id);
 };
 
-window.openCreateModal = (id, prefillTitle) => {
-    currentEditId = null;
+window.openCreateModal = () => {
+    window.currentEditId = null;
     document.getElementById('modal-title').innerText = "Artikel anlegen";
-    document.getElementById('inp-title').value = prefillTitle || "";
+    document.getElementById('inp-title').value = "";
     document.getElementById('inp-sku').value = generateAutoSKU();
     document.getElementById('inp-location').value = "";
     document.getElementById('inp-price').value = "";
@@ -238,7 +152,7 @@ window.openCreateModal = (id, prefillTitle) => {
 window.openEditModal = (id) => {
     const item = window.lastStockItems.find(i => i.id === id);
     if(!item) return;
-    currentEditId = id;
+    window.currentEditId = id; 
     document.getElementById('modal-title').innerText = "Bearbeiten";
     document.getElementById('inp-title').value = item.title;
     document.getElementById('inp-sku').value = item.sku || generateAutoSKU();
@@ -253,7 +167,7 @@ window.openEditModal = (id) => {
 
 window.saveItem = () => {
     const data = {
-        id: currentEditId,
+        id: window.currentEditId,
         title: document.getElementById('inp-title').value,
         sku: document.getElementById('inp-sku').value,
         location: document.getElementById('inp-location').value,
@@ -264,19 +178,22 @@ window.saveItem = () => {
         sourceName: document.getElementById('inp-source-name').value
     };
     if(!data.title) return alert("Titel fehlt");
-    if(currentEditId) socket.emit('update-stock-details', data);
+    if(window.currentEditId) socket.emit('update-stock-details', data);
     else socket.emit('create-new-stock', data);
     closeAllModals();
 };
 
 window.updateQty = (id, d) => socket.emit('update-stock-qty', { id, delta: d });
-window.deleteItem = (id) => { if(confirm("Löschen?")) socket.emit('delete-stock-item', id); };
-window.checkDbMatch = (id) => socket.emit('request-db-match', id);
 
-window.triggerManualScan = () => {
-    const val = document.getElementById('manual-code-input').value;
-    if(val) { socket.emit('check-scan', val); document.getElementById('manual-code-input').value=""; }
+window.deleteItem = (id) => {
+    if(!id && window.currentEditId) id = window.currentEditId;
+    if(id && confirm("Wirklich löschen?")) {
+        socket.emit('delete-stock-item', id);
+        closeAllModals();
+    }
 };
+
+window.checkDbMatch = (id) => socket.emit('request-db-match', id);
 
 window.closeAllModals = () => document.querySelectorAll('.modal-overlay').forEach(e => e.classList.remove('open'));
 window.filterStock = () => {
@@ -284,12 +201,14 @@ window.filterStock = () => {
     document.querySelectorAll('.stock-card').forEach(el => el.style.display = el.dataset.search.includes(term) ? 'flex' : 'none');
 };
 
-// --- RENDER ---
+// --- RENDER FUNKTION ---
 function renderStock(items) {
     const grid = document.getElementById('stock-grid');
     grid.innerHTML = '';
+    
     const priority = { 'red': 4, 'yellow': 3, 'green': 2, 'grey': 1 };
     items.sort((a,b) => priority[b.trafficStatus] - priority[a.trafficStatus]);
+    
     document.getElementById('stat-total').innerText = items.reduce((acc, i) => acc + (parseInt(i.quantity)||0), 0);
 
     items.forEach(item => {
@@ -309,13 +228,19 @@ function renderStock(items) {
             case 'red': trafficClass='light-red'; statusMsg='Leer!'; break;
         }
 
+        // Bild-Logik vereinfacht, um Syntaxfehler zu vermeiden
+        let imgHtml = '';
+        if (item.image) {
+            imgHtml = `<img src="${item.image}" style="width:50px; height:50px; object-fit:contain; background:#fff; margin-right:10px;">`;
+        }
+
         const card = document.createElement('div');
         card.className = 'stock-card';
         card.dataset.search = (item.title + " " + (item.sku||"")).toLowerCase();
         
         card.innerHTML = `
             <div style="display:flex; padding:10px;">
-                ${item.image ? `<img src="${item.image}" style="width:50px; height:50px; object-fit:contain; background:#fff; margin-right:10px;">` : ''}
+                ${imgHtml}
                 <div style="flex:1; min-width:0;">
                     <div style="font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${item.title}</div>
                     <div style="font-size:0.8rem; margin-top:5px; display:flex; align-items:center;">
@@ -331,10 +256,12 @@ function renderStock(items) {
                    <b style="margin:0 8px; font-size:1.1rem;">${item.quantity}</b>
                    <button class="btn-mini" onclick="window.updateQty('${item.id}', 1)">+</button>
                 </div>
+                
                 <div style="display:flex; gap:5px;">
+                   <button class="btn-mini btn-del" onclick="window.deleteItem('${item.id}')" title="Löschen" style="color:#ef4444; border-color:#ef4444;">🗑️</button>
                    ${actionBtn}
-                   <button class="btn-mini" onclick="openPrintModal('${item.id}')" title="Label drucken">🖨️</button>
-                   <button class="btn-mini" onclick="openEditModal('${item.id}')">✏️</button>
+                   <button class="btn-mini" onclick="openPrintModal('${item.id}')" title="Drucken">🖨️</button>
+                   <button class="btn-mini" onclick="openEditModal('${item.id}')" title="Bearbeiten">✏️</button>
                 </div>
             </div>
         `;
@@ -342,7 +269,7 @@ function renderStock(items) {
     });
 }
 
-// Scanner
+// --- DRUCKEN & SCANNER HELPER ---
 window.triggerCamera = () => document.getElementById('cam-input').click();
 window.startCropping = (inp) => {
     if(inp.files[0]) {
@@ -369,4 +296,30 @@ window.performOCR = () => {
         } catch(e){}
         closeAllModals(); btn.innerText="Text scannen";
     }, 'image/jpeg');
+};
+window.openPrintModal = async (id) => {
+    const item = window.lastStockItems.find(i => i.id === id);
+    if(!item) return;
+    const codeContent = item.sku || item.id; 
+    try {
+        const res = await fetch(`/api/qr/${encodeURIComponent(codeContent)}`);
+        const data = await res.json();
+        if(data.url) {
+            document.getElementById('print-qr').src = data.url;
+            document.getElementById('print-title').innerText = item.title.substring(0, 30);
+            document.getElementById('print-sku').innerText = item.sku || "Keine SKU";
+            document.getElementById('print-modal').classList.add('open');
+        }
+    } catch(e) { alert("Fehler"); }
+};
+window.printLabel = () => {
+    const content = document.getElementById('print-area').innerHTML;
+    const win = window.open('', '', 'height=400,width=400');
+    win.document.write('<html><head><title>Label</title><style>body{font-family:sans-serif;text-align:center;}img{width:100%;max-width:200px;}</style></head><body>' + content + '</body></html>');
+    win.document.close();
+    win.print();
+};
+window.triggerManualScan = () => {
+    const val = document.getElementById('manual-code-input').value;
+    if(val) { socket.emit('check-scan', val); document.getElementById('manual-code-input').value=""; }
 };
