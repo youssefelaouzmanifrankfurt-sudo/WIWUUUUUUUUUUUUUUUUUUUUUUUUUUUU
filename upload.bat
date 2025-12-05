@@ -3,38 +3,37 @@ chcp 65001 >nul
 cls
 
 echo ==========================================
-echo      UPLOAD ZU: home2 (youssefelaouzmanifrankfurt-sudo)
+echo      SYNCHRONISIERUNG GITHUB
 echo ==========================================
 echo.
 
-:: 1. In den Ordner der Datei wechseln
 cd /d "%~dp0"
 
-:: 2. Fehler-Reparatur (index.lock entfernen falls vorhanden)
+:: 1. Fehler-Reparatur (index.lock entfernen)
 if exist ".git\index.lock" (
     del ".git\index.lock" /f /q
 )
 
-:: 3. SICHERSTELLEN, DASS DER LINK STIMMT
-:: Versucht erst, den Link hinzuzufügen (falls er fehlt)
+:: 2. Sicherstellen, dass der Link stimmt
 git remote add origin https://github.com/youssefelaouzmanifrankfurt-sudo/home2.git 2>nul
-:: Erzwingt dann, dass der Link korrekt gesetzt ist
 git remote set-url origin https://github.com/youssefelaouzmanifrankfurt-sudo/home2.git
 
+:: 3. ERST RUNTERLADEN (Wichtig für neuen PC)
+echo [1/4] Hole neuste Daten von GitHub (Pull)...
+git pull origin main --no-rebase
+
 :: 4. Dateien hinzufügen
-echo [1/3] Dateien werden gesammelt...
+echo [2/4] Sammle lokale Dateien (Add)...
 git add .
 
-:: 5. Nachricht abfragen
-set /p msg="Gib eine Notiz ein (oder druecke ENTER fuer Datum/Uhrzeit): "
-if "%msg%"=="" set msg=Automatisches Update %date% %time%
-
-:: 6. Commit erstellen
-echo [2/3] Speichere Version...
+:: 5. Commit erstellen
+set /p msg="Gib eine Notiz ein (oder druecke ENTER): "
+if "%msg%"=="" set msg=Update %date% %time%
+echo [3/4] Speichere Version (Commit)...
 git commit -m "%msg%"
 
-:: 7. Hochladen
-echo [3/3] Lade zu GitHub hoch...
+:: 6. Hochladen
+echo [4/4] Lade zu GitHub hoch (Push)...
 git push origin main
 
 echo.
