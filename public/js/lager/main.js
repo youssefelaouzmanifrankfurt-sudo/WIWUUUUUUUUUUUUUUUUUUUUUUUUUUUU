@@ -5,8 +5,14 @@ window.lastStockItems = [];
 window.currentEditId = null;
 let currentCheckId = null;
 
+// Temporärer Speicher für Watchlist im Modal
+let tempCompetitors = [];
+
 socket.on('connect', () => socket.emit('get-stock'));
-socket.on('force-reload-stock', () => socket.emit('get-stock'));
+socket.on('force-reload-stock', () => {
+    socket.emit('get-stock');
+    if (navigator.vibrate) navigator.vibrate([50, 50, 50]); 
+});
 
 socket.on('update-stock', (items) => {
     window.lastStockItems = items || [];
@@ -18,6 +24,23 @@ function generateAutoSKU() {
     return "LAGER-" + Math.floor(1000 + Math.random() * 9000); 
 }
 
+// WATCHLIST FUNKTIONEN (NEU)
+window.addToWatchlist = (item) => {
+    // Prüfen ob schon drin
+    if(tempCompetitors.some(c => c.url === item.url)) {
+        alert("Ist schon in der Liste!");
+        return;
+    }
+    tempCompetitors.push(item);
+    window.renderCompetitorList(tempCompetitors);
+    if (navigator.vibrate) navigator.vibrate(30); // Kurzes Feedback
+};
+
+window.removeCompetitor = (index) => {
+    tempCompetitors.splice(index, 1);
+    window.renderCompetitorList(tempCompetitors);
+};
+
 window.startPriceSearch = () => {
     const query = document.getElementById('inp-title').value;
     if(query.length < 3) return alert("Bitte Modellnamen eingeben!");
@@ -25,7 +48,7 @@ window.startPriceSearch = () => {
     const list = document.getElementById('price-results');
     if(list) {
         list.style.display = 'block';
-        list.innerHTML = '<div style="padding:15px; text-align:center;">⏳ Suche läuft...</div>';
+        list.innerHTML = '<div style="padding:15px; text-align:center;">⏳ Suche läuft... (Top 25)</div>';
     }
     socket.emit('search-price-sources', query);
 };
@@ -34,67 +57,45 @@ socket.on('price-search-results', (results) => {
     if(window.renderPriceResults) window.renderPriceResults(results);
 });
 
-// MATCH: Ergebnis der automatischen Suche
+// MATCH LOGIK
 socket.on('db-match-result', (res) => {
     currentCheckId = res.stockId;
-    
-    // Leere das Suchfeld beim Öffnen
     const searchInput = document.getElementById('match-search');
     if (searchInput) searchInput.value = "";
-
-    // Benutze die neue Render-Funktion aus ui.js
-    if (window.renderMatchCandidates) {
-        window.renderMatchCandidates(res.candidates, currentCheckId, socket);
-    }
-
-    // Setup Auto Create Button
-    const btnCreate = document.getElementById('btn-auto-create-ad');
-    if(btnCreate) {
-        btnCreate.onclick = () => {
-            if(confirm("Soll ein Entwurf automatisch erstellt werden?")) {
-                socket.emit('auto-create-ad', currentCheckId);
-            }
-        };
-    }
-
-    const modal = document.getElementById('match-modal');
-    if(modal) modal.classList.add('open');
+    if (window.renderMatchCandidates) window.renderMatchCandidates(res.candidates, currentCheckId, socket);
+    document.getElementById('match-modal').classList.add('open');
 });
 
-// MATCH: Ergebnis der MANUELLEN Suche
 socket.on('db-match-search-results', (results) => {
     if (window.renderMatchCandidates && currentCheckId) {
         window.renderMatchCandidates(results, currentCheckId, socket);
     }
 });
 
-// MATCH: Suche Event Listener
 const matchSearchInput = document.getElementById('match-search');
 if(matchSearchInput) {
     let timeout = null;
     matchSearchInput.addEventListener('input', (e) => {
         const val = e.target.value;
         clearTimeout(timeout);
-        
-        // Verzögerung, damit wir den Server nicht bei jedem Buchstaben nerven
         timeout = setTimeout(() => {
-            if(val.length > 1) {
-                socket.emit('search-db-for-link', val);
-            }
+            if(val.length > 1) socket.emit('search-db-for-link', val);
         }, 300);
     });
 }
 
-// --- FEEDBACK ---
+// FEEDBACK
 socket.on('export-progress', (msg) => window.showLoading("Verarbeite...", msg, true));
 socket.on('export-success', (msg) => window.showLoading("Erfolg!", msg, false, true));
 socket.on('export-error', (msg) => window.showLoading("Fehler", msg, false, false));
 
-// --- CRUD ---
+// CRUD
 window.unlinkItem = (id) => { if(confirm("Verbindung lösen?")) socket.emit('unlink-stock-item', id); };
 
 window.openCreateModal = () => {
     window.currentEditId = null;
+    tempCompetitors = []; // Reset
+    
     document.getElementById('modal-title').innerText = "Artikel anlegen";
     document.getElementById('inp-title').value = "";
     document.getElementById('inp-sku').value = generateAutoSKU();
@@ -102,14 +103,22 @@ window.openCreateModal = () => {
     document.getElementById('inp-price').value = "";
     document.getElementById('inp-market-price').value = "";
     document.getElementById('inp-qty').value = "1";
+    document.getElementById('inp-image').value = ""; 
     document.getElementById('price-results').style.display = 'none';
+    document.getElementById('profit-badge').style.display = 'none';
+    
+    window.renderCompetitorList(tempCompetitors); // Leere Liste rendern
     document.getElementById('item-modal').classList.add('open');
 };
 
 window.openEditModal = (id) => {
     const item = window.lastStockItems.find(i => i.id === id);
     if(!item) return;
-    window.currentEditId = id; 
+    window.currentEditId = id;
+    
+    // Bestehende Watchlist laden
+    tempCompetitors = item.competitors ? [...item.competitors] : [];
+
     document.getElementById('modal-title').innerText = "Bearbeiten";
     document.getElementById('inp-title').value = item.title;
     document.getElementById('inp-sku').value = item.sku || generateAutoSKU();
@@ -119,6 +128,12 @@ window.openEditModal = (id) => {
     document.getElementById('inp-qty').value = item.quantity;
     document.getElementById('inp-source-url').value = item.sourceUrl || "";
     document.getElementById('inp-source-name').value = item.sourceName || "";
+    document.getElementById('inp-image').value = item.image || ""; 
+    
+    window.renderCompetitorList(tempCompetitors); // Liste anzeigen
+    
+    if(window.calcProfit) window.calcProfit();
+    
     document.getElementById('item-modal').classList.add('open');
 };
 
@@ -132,11 +147,15 @@ window.saveItem = () => {
         quantity: document.getElementById('inp-qty').value,
         marketPrice: document.getElementById('inp-market-price').value,
         sourceUrl: document.getElementById('inp-source-url').value,
-        sourceName: document.getElementById('inp-source-name').value
+        sourceName: document.getElementById('inp-source-name').value,
+        image: document.getElementById('inp-image').value,
+        competitors: tempCompetitors // WICHTIG: Die Liste mitsenden!
     };
     if(!data.title) return alert("Titel fehlt");
     if(window.currentEditId) socket.emit('update-stock-details', data);
     else socket.emit('create-new-stock', data);
+    
+    if (navigator.vibrate) navigator.vibrate(100); 
     window.closeAllModals();
 };
 

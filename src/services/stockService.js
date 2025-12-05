@@ -54,9 +54,12 @@ class StockService {
             
             sourceUrl: details.sourceUrl || "",
             sourceName: details.sourceName || "",
-            
-            linkedAdId: details.linkedAdId || null,
             image: details.image || null,
+            
+            // NEU: Konkurrenz-Liste (Watchlist)
+            competitors: details.competitors || [],
+
+            linkedAdId: details.linkedAdId || null,
             
             scannedAt: new Date().toLocaleString(),
             lastPriceCheck: details.lastPriceCheck || null
@@ -86,17 +89,19 @@ class StockService {
         if (item) {
             if (data.title) item.title = data.title;
             if (data.location) item.location = data.location;
-            if (data.purchasePrice) item.purchasePrice = parseFloat(data.purchasePrice);
-            if (data.quantity) item.quantity = parseInt(data.quantity);
+            if (data.purchasePrice !== undefined) item.purchasePrice = parseFloat(data.purchasePrice);
+            if (data.quantity !== undefined) item.quantity = parseInt(data.quantity);
             
             if (data.sku) item.sku = data.sku;
-            if (data.marketPrice) item.marketPrice = data.marketPrice;
+            if (data.marketPrice !== undefined) item.marketPrice = parseFloat(data.marketPrice);
             if (data.sourceUrl) item.sourceUrl = data.sourceUrl;
             if (data.sourceName) item.sourceName = data.sourceName;
+            if (data.image) item.image = data.image;
+
+            // NEU: Konkurrenz-Liste speichern
+            if (data.competitors) item.competitors = data.competitors;
             
-            // WICHTIG: Hier fehlte vorher das Speichern der Verknüpfung!
             if (data.linkedAdId !== undefined) item.linkedAdId = data.linkedAdId;
-            if (data.image !== undefined) item.image = data.image;
             
             this._save(stock);
         }
@@ -119,7 +124,6 @@ class StockService {
         const initialLength = stock.length;
         stock = stock.filter(i => i.id !== id);
         
-        // Nur speichern, wenn wirklich was gelöscht wurde
         if (stock.length !== initialLength) {
             this._save(stock);
             return true;

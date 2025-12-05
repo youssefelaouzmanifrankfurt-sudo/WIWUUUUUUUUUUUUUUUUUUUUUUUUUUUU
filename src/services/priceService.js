@@ -1,45 +1,69 @@
 // src/services/priceService.js
-const ottoScraper = require('../scrapers/ottoScraper');
 const idealoScraper = require('../scrapers/idealoScraper');
-const logger = require('../utils/logger');
+const ottoScraper = require('../scrapers/ottoScraper');
+const amazonScraper = require('../scrapers/amazonScraper');
+const baurScraper = require('../scrapers/baurScraper'); // Wieder da!
+const { findBestMatch } = require('../utils/similarity');
 
-// Helper: Preis bereinigen (aus "19,99 €" mach 19.99)
-function parsePrice(str) {
-    if (typeof str === 'number') return str;
-    if (!str) return 0;
-    return parseFloat(str.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
-}
-
-// Helper: Ergebnisse einheitlich formatieren
-function formatResults(list, source) {
-    if (!list || !Array.isArray(list)) return [];
-    return list.slice(0, 3).map(item => ({
-        title: item.title,
-        price: parsePrice(item.price),
-        image: item.img || item.image,
-        url: item.url,
-        source: source
-    }));
-}
+// Konfiguration
+const MAX_RESULTS_TOTAL = 60; 
 
 async function searchMarketPrices(query) {
-    if (!query || query.length < 3) return [];
-    
-    logger.log('info', `🔎 Preis-Check Service: "${query}"`);
+    if (!query) return [];
 
-    // Parallel suchen für Geschwindigkeit
-    const [rOtto, rIdealo] = await Promise.all([
+    // Parallel suchen (Alle Quellen)
+    const [idealo, otto, amazon, baur] = await Promise.all([
+        idealoScraper.searchIdealo(query).catch(e => []),
         ottoScraper.searchOtto(query).catch(e => []),
-        idealoScraper.searchIdealo(query).catch(e => [])
+        amazonScraper.searchAmazon(query).catch(e => []),
+        baurScraper.searchBaur(query).catch(e => [])
     ]);
 
-    let allResults = [];
-    if (rOtto) allResults.push(...formatResults(rOtto, 'Otto'));
-    if (rIdealo) allResults.push(...formatResults(rIdealo, 'Idealo'));
+    // Ergebnisse normalisieren
+    let allResults = [
+        ...idealo.map(i => ({ ...i, source: 'Idealo' })),
+        ...otto.map(i => ({ ...i, source: 'Otto' })),
+        ...amazon.map(i => ({ ...i, source: 'Amazon' })),
+        ...baur.map(i => ({ ...i, source: 'Baur' }))
+    ];
 
-    return allResults;
+    // Daten bereinigen
+    allResults = allResults.map(item => {
+        // Preis zu Zahl
+        let price = item.price;
+        if (typeof price === 'string') {
+            price = parseFloat(price.replace(/[^0-9,]/g, '').replace(',', '.'));
+        }
+        
+        // Bild zu 'image' normalisieren
+        let image = item.image || item.img || '';
+        
+        return { 
+            title: item.title,
+            price: price || 0,
+            image: image, // Einheitlicher Name!
+            url: item.url,
+            source: item.source
+        };
+    });
+
+    // Filtern: Nur Ergebnisse mit Bild und Preis
+    allResults = allResults.filter(i => i.price > 0 && i.image.length > 5);
+
+    // Sortierung: Relevanz (Score) > Preis
+    const scoredResults = allResults.map(item => {
+        const match = findBestMatch(query, [item]); 
+        return { ...item, score: match.score };
+    });
+
+    scoredResults.sort((a, b) => {
+        // Zuerst nach Score (wenn Unterschied groß ist)
+        if (Math.abs(a.score - b.score) > 0.15) return b.score - a.score;
+        // Sonst nach Preis (günstiger zuerst)
+        return a.price - b.price; 
+    });
+
+    return scoredResults.slice(0, MAX_RESULTS_TOTAL);
 }
 
-module.exports = {
-    searchMarketPrices
-};
+module.exports = { searchMarketPrices };
