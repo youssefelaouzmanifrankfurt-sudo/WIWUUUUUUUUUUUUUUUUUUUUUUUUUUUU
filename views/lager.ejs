@@ -4,106 +4,50 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Smart Lager</title>
-    
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script> 
-
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/css/lager.css">
     
     <style>
-        /* --- HANDY OPTIMIERUNG --- */
-        .price-result-list { 
-            max-height: 40vh; /* Größerer Bereich */
-            overflow-y: auto; 
-            margin-bottom: 15px; 
-            background: #0f172a; 
-            border-radius: 12px; 
-            display: none; 
-            border: 1px solid #334155; 
-        }
-
-        .price-item { 
-            display: flex; 
-            align-items: center; 
-            padding: 15px; /* Mehr Platz für Finger */
-            border-bottom: 1px solid #334155; 
-            cursor: pointer; 
-            transition: background 0.2s; 
-            background: #1e293b;
-            margin-bottom: 1px;
-        }
-        
-        .price-item:active { background: #334155; }
-
-        .price-item img { 
-            width: 60px; height: 60px; /* Größere Bilder */
-            object-fit: contain; 
-            margin-right: 15px; 
-            background: white; 
-            border-radius: 8px; 
-            padding: 2px;
-        }
-
+        /* HANDY OPTIMIERUNG & NEUES DESIGN */
+        .price-result-list { max-height: 40vh; overflow-y: auto; margin-bottom: 15px; background: #0f172a; border-radius: 12px; display: none; border: 1px solid #334155; }
+        .price-item { display: flex; align-items: center; padding: 15px; border-bottom: 1px solid #334155; cursor: pointer; background: #1e293b; }
+        .price-item img { width: 60px; height: 60px; object-fit: contain; margin-right: 15px; background: white; border-radius: 8px; padding: 2px; }
         .price-info { flex: 1; }
-        .price-title { font-weight: 600; font-size: 0.95rem; line-height: 1.3; color: #f1f5f9; margin-bottom: 4px; }
-        .price-meta { display: flex; align-items: center; gap: 8px; }
-        
+        .price-title { font-weight: 600; font-size: 0.95rem; color: #f1f5f9; line-height:1.3; margin-bottom:4px;}
         .price-val { color: #10b981; font-weight: bold; font-size: 1.1rem; }
-
-        .price-source { 
-            font-size: 0.75rem; text-transform: uppercase; font-weight: bold; 
-            padding: 3px 8px; border-radius: 6px; 
-        }
+        .price-source { font-size: 0.75rem; text-transform: uppercase; font-weight: bold; padding: 3px 8px; border-radius: 6px; margin-right:5px; }
         .src-otto { background: #ef4444; color: white; }
         .src-baur { background: #004e9e; color: white; }
         .src-idealo { background: #f59e0b; color: black; }
         .src-amazon { background: #ff9900; color: black; }
-
-        .btn-choose {
-            background: #2563eb; color: white; border: none;
-            padding: 8px 16px; border-radius: 8px; font-weight: bold;
-            font-size: 0.9rem;
+        
+        /* VORSCHLÄGE / SETS (NEU) */
+        .suggestion-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; display: none; }
+        .suggestion-chip { 
+            background: #334155; color: #fff; padding: 8px 12px; border-radius: 20px; 
+            font-size: 0.85rem; cursor: pointer; border: 1px solid #475569; transition: 0.2s;
         }
-
-        /* Profit Badge */
-        .profit-badge {
-            background: #1e293b; padding: 12px; border-radius: 10px;
-            text-align: center; margin-top: 10px;
-            border: 1px solid #334155; font-weight: bold; font-size: 1.1rem;
-            display: none;
-        }
+        .suggestion-chip:hover { background: #3b82f6; border-color: #60a5fa; }
+        
+        /* PROFIT & WATCHLIST */
+        .profit-badge { background: #1e293b; padding: 12px; border-radius: 10px; text-align: center; margin-top: 10px; border: 1px solid #334155; font-weight: bold; display: none; }
         .profit-win { background: rgba(16, 185, 129, 0.15); border-color: #10b981; color: #10b981; }
         .profit-loss { background: rgba(239, 68, 68, 0.15); border-color: #ef4444; color: #ef4444; }
-        
-        /* Watchlist Tags */
         .competitor-list { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
-        .competitor-tag { 
-            background: #334155; padding: 6px 10px; border-radius: 8px; 
-            font-size: 0.85rem; display: flex; align-items: center; border: 1px solid #475569;
-        }
-        .competitor-tag .del-btn { margin-left: 8px; padding: 0 5px; color: #ef4444; font-weight: bold; font-size: 1.2rem; }
-
+        .competitor-tag { background: #334155; padding: 6px 10px; border-radius: 8px; font-size: 0.85rem; display: flex; align-items: center; border: 1px solid #475569; }
+        .competitor-tag a { color: #e2e8f0; text-decoration: none; display: flex; align-items: center; }
     </style>
 </head>
 <body>
-
     <%- include('partials/nav') %>
-
     <div class="main-content">
         <div class="header-grid">
-            <div>
-                <h1 style="margin:0;">📦 Smart Lager</h1>
-                <div style="color:#94a3b8; font-size:0.9rem;">Bestand & Preise</div>
-            </div>
-            <div class="stats-bar">
-                <div class="stat-item">
-                    <span class="stat-val" id="stat-total">0</span>
-                    <span class="stat-label">Artikel</span>
-                </div>
-            </div>
+            <div><h1 style="margin:0;">📦 Smart Lager</h1><div style="color:#94a3b8;">Bestand & Preise</div></div>
+            <div class="stats-bar"><div class="stat-item"><span class="stat-val" id="stat-total">0</span><span class="stat-label">Artikel</span></div></div>
         </div>
 
         <div style="background:#1e293b; padding:12px; border-radius:12px; margin-bottom:15px; display:flex; gap:8px;">
@@ -112,21 +56,14 @@
         </div>
 
         <div class="controls-area" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom: 20px;">
-            <button class="btn-action btn-add" onclick="openCreateModal()" style="grid-column: 1 / -1; padding: 15px; font-size: 1.1rem;">
-                <span>➕</span> Neu & Preis-Check
-            </button>
+            <button class="btn-action btn-add" onclick="openCreateModal()" style="grid-column: 1 / -1; padding: 15px; font-size: 1.1rem;"><span>➕</span> Neu & Preis-Check</button>
             <button class="btn-action" onclick="window.startQRScanner()" style="background:#3b82f6; padding: 12px;"><span>📱</span> QR-Scan</button>
             <button class="btn-action btn-scan" onclick="window.triggerCamera()" style="padding: 12px;"><span>📸</span> Foto-Scan</button>
-            
-            <input type="file" id="cam-input" accept="image/*" capture="environment" onchange="window.startCropping(this)" style="display:none;">
             <div style="grid-column: 1 / -1; margin-top: 5px;">
                  <input type="text" id="inp-search" class="search-input" placeholder="Lager durchsuchen..." onkeyup="window.filterStock()" style="width:100%; padding: 12px; border-radius: 8px; background: #0f172a; border: 1px solid #334155; color: white;">
             </div>
         </div>
-
-        <div id="stock-grid" class="stock-grid">
-            <div style="grid-column:1/-1; text-align:center; padding:50px; color:#64748b;">Lade Lagerbestand...</div>
-        </div>
+        <div id="stock-grid" class="stock-grid"><div style="grid-column:1/-1; text-align:center; padding:50px; color:#64748b;">Lade Daten...</div></div>
     </div>
 
     <div id="item-modal" class="modal-overlay">
@@ -135,31 +72,25 @@
             <input type="hidden" id="edit-id">
             
             <div class="form-group">
-                <label class="form-label">Modell / Suche</label>
+                <label class="form-label">Modell / Name</label>
                 <div style="display:flex; gap:8px;">
-                    <input type="text" id="inp-title" class="form-input" style="padding: 12px;" placeholder="z.B. iPhone 13">
+                    <input type="text" id="inp-title" class="form-input" style="padding: 12px;" placeholder="z.B. Heko">
+                    <button class="btn-secondary" onclick="window.findSets()" style="padding: 0 10px; font-size: 0.9rem; background:#475569;" title="Nach Sets suchen">Sets?</button>
                     <button class="btn-secondary" onclick="startPriceSearch()" style="padding: 0 15px; font-size: 1.2rem;">🔍</button>
                 </div>
             </div>
+
+            <div id="suggestion-chips" class="suggestion-chips"></div>
 
             <div id="price-results" class="price-result-list">
                 <div style="padding:20px; text-align:center; color:#94a3b8;">Suche läuft...</div>
             </div>
 
-            <div class="form-group">
-                <label class="form-label">SKU</label>
-                <input type="text" id="inp-sku" class="form-input" placeholder="Automatisch...">
-            </div>
+            <div class="form-group"><label class="form-label">SKU</label><input type="text" id="inp-sku" class="form-input" placeholder="Automatisch..."></div>
 
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
-                <div class="form-group">
-                    <label class="form-label">Marktpreis (€)</label>
-                    <input type="number" id="inp-market-price" class="form-input" step="0.01" style="font-weight:bold;" oninput="window.calcProfit()">
-                </div>
-                <div class="form-group">
-                    <label class="form-label" style="color:#f59e0b;">Mein EK (€)</label>
-                    <input type="number" id="inp-price" class="form-input" step="0.01" style="border-color:#f59e0b; color:#f59e0b; font-weight:bold;" oninput="window.calcProfit()">
-                </div>
+                <div class="form-group"><label class="form-label">Marktpreis (€)</label><input type="number" id="inp-market-price" class="form-input" step="0.01" style="font-weight:bold;" oninput="window.calcProfit()"></div>
+                <div class="form-group"><label class="form-label" style="color:#f59e0b;">Mein EK (€)</label><input type="number" id="inp-price" class="form-input" step="0.01" style="border-color:#f59e0b; color:#f59e0b; font-weight:bold;" oninput="window.calcProfit()"></div>
             </div>
 
             <div id="profit-badge" class="profit-badge"></div>
@@ -169,16 +100,14 @@
                 <div id="competitor-list" class="competitor-list"></div>
             </div>
             
-            <input type="hidden" id="inp-source-url">
-            <input type="hidden" id="inp-source-name">
-            <input type="hidden" id="inp-image">
+            <input type="hidden" id="inp-source-url"><input type="hidden" id="inp-source-name"><input type="hidden" id="inp-image">
 
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; margin-top:20px;">
                 <div class="form-group"><label class="form-label">Ort</label><input type="text" id="inp-location" class="form-input" placeholder="Regal A"></div>
                 <div class="form-group"><label class="form-label">Menge</label><input type="number" id="inp-qty" class="form-input" value="1"></div>
             </div>
 
-            <div class="modal-actions" style="display:flex; justify-content: space-between; align-items: center; margin-top: 25px;">
+            <div class="modal-actions" style="display:flex; justify-content: space-between; margin-top: 25px;">
                 <button onclick="window.deleteItem()" class="btn-mini" style="background:#ef4444; color:white; padding: 12px;">🗑️</button>
                 <div style="display:flex; gap: 10px;">
                     <button onclick="closeAllModals()" class="btn-mini" style="padding: 12px 20px;">Abbruch</button>
@@ -187,28 +116,10 @@
             </div>
         </div>
     </div>
-
-    <%- include('partials/match_modals') %>
-    <div id="print-modal" class="modal-overlay" style="z-index: 3000;">
-        <div class="modal-box" style="text-align:center; background:white; color:black; max-width:350px;">
-            <h2 style="margin:0; font-size:1.2rem; color:black;">Etikett</h2>
-            <div id="print-area" style="padding:20px; border:2px dashed #ccc; margin:15px 0;">
-                <h3 id="print-title" style="margin:0 0 10px 0; font-size:1rem; color:black;">-</h3>
-                <img id="print-qr" src="" style="width:150px; height:150px;">
-                <div id="print-sku" style="font-family:monospace; font-size:1.2rem; font-weight:bold; margin-top:5px; color:black;">-</div>
-            </div>
-            <button onclick="window.printLabel()" class="btn-primary" style="width:100%;">🖨️ Drucken</button>
-            <button onclick="closeAllModals()" class="btn-mini" style="width:100%; margin-top:10px; background:#eee; color:black;">Schließen</button>
-        </div>
-    </div>
     
-    <div id="qr-scanner-modal" class="modal-overlay" style="z-index: 3000;">
-        <div class="modal-box" style="text-align:center; width: 100%; max-width: 500px;">
-            <h2 style="margin-bottom:15px;">Scanner</h2>
-            <div id="reader" style="width: 100%; min-height: 300px; background: black;"></div>
-            <button onclick="window.stopQRScanner()" class="btn-mini" style="width:100%; margin-top:15px;">Abbrechen</button>
-        </div>
-    </div>
+    <%- include('partials/match_modals') %>
+    <div id="print-modal" class="modal-overlay" style="z-index: 3000;"><div class="modal-box"><h2 style="color:black;">Etikett</h2><div id="print-area" style="color:black; border:1px dashed black; padding:10px;"><h3 id="print-title"></h3><img id="print-qr" width="150"><div id="print-sku"></div></div><button onclick="window.printLabel()" class="btn-primary">Drucken</button><button onclick="closeAllModals()" class="btn-mini" style="background:#eee; color:black;">X</button></div></div>
+    <div id="qr-scanner-modal" class="modal-overlay" style="z-index: 3000;"><div class="modal-box"><div id="reader" style="width:100%;height:300px;background:black;"></div><button onclick="window.stopQRScanner()" class="btn-mini">Abbruch</button></div></div>
 
     <script src="/js/lager/ui.js"></script>
     <script src="/js/lager/printer.js"></script>

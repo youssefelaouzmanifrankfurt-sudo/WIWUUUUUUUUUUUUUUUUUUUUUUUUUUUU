@@ -3,6 +3,7 @@ const stockService = require('../../services/stockService');
 const inventoryService = require('../../services/inventoryService');
 const priceService = require('../../services/priceService');
 const matchService = require('../../services/matchService');
+const importService = require('../../services/importService'); // Neu importieren
 const { getBestImage } = require('./helpers');
 
 module.exports = (io, socket) => {
@@ -48,7 +49,7 @@ module.exports = (io, socket) => {
         socket.emit('update-stock', enrichedStock);
     });
 
-    // Preissuche
+    // Preissuche (Normale Suche & Set Suche)
     socket.on('search-price-sources', async (query) => {
         try {
             const results = await priceService.searchMarketPrices(query);
@@ -58,7 +59,17 @@ module.exports = (io, socket) => {
         }
     });
 
-    // DB Match Suche (Automatisch)
+    // NEU: Live Preis-Check für Watchlist
+    socket.on('check-competitor-price', async (data) => {
+        const price = await importService.scrapeUrlPrice(data.url);
+        socket.emit('competitor-price-result', { 
+            index: data.index, 
+            price: price, 
+            url: data.url 
+        });
+    });
+
+    // DB Match Suche
     socket.on('request-db-match', (stockId) => {
         const item = stockService.getAll().find(i => i.id === stockId);
         if (!item) return;
@@ -66,25 +77,23 @@ module.exports = (io, socket) => {
         socket.emit('db-match-result', { found: true, stockId, candidates });
     });
 
-    // NEU: Manuelle DB Suche für Verknüpfung
+    // Manuelle DB Suche
     socket.on('search-db-for-link', (query) => {
         const allAds = inventoryService.getAll();
         const term = query.toLowerCase();
         
-        // Filtern nach Titel oder ID
         const results = allAds.filter(ad => 
             (ad.title && ad.title.toLowerCase().includes(term)) || 
             (ad.id && ad.id.includes(term))
-        ).slice(0, 20); // Limitieren auf 20
+        ).slice(0, 20);
 
-        // Formatieren für Frontend
         const candidates = results.map(ad => ({
             id: ad.id,
             title: ad.title,
             price: ad.price,
             status: ad.status || (ad.active ? 'ACTIVE' : 'INACTIVE'),
             image: getBestImage(ad),
-            score: null // Kein Score, da manuell gesucht
+            score: null
         }));
 
         socket.emit('db-match-search-results', candidates);
