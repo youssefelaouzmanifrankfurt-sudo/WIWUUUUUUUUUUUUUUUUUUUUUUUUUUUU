@@ -1,43 +1,65 @@
+// src/scrapers/db/worker.js
+const logger = require('../../utils/logger');
+const config = require('./config');
 const { parseDetailInBrowser } = require('./parsers');
 
-/**
- * Ein Worker, der eine Queue von Anzeigen abarbeitet.
- * @param {object} browser - Die Browser Instanz
- * @param {Array} queue - Die Liste der zu scannenden Anzeigen
- * @param {Function} onProgress - Callback für Fortschritt
- */
-async function startWorker(browser, queue, onProgress) {
-    const page = await browser.newPage();
-    
-    // Optional: Bilder blockieren für mehr Speed (kannst du auskommentieren wenn du willst)
-    await page.setRequestInterception(true);
-    page.on('request', (req) => {
-        if (['image', 'font'].includes(req.resourceType())) req.abort();
-        else req.continue();
-    });
+async function processQueue(browser, queue) {
+    if (queue.length === 0) return;
 
-    while (queue.length > 0) {
-        const ad = queue.shift(); // Nimm nächsten Job
-        if (!ad) break;
+    logger.log('info', `⚡ Deep-Scan: ${queue.length} Anzeigen in Queue.`);
 
+    const createWorker = async (workerId) => {
+        let page = null;
         try {
-            await page.goto(ad.url, { waitUntil: 'domcontentloaded' });
+            page = await browser.newPage();
             
-            // Hier nutzen wir die ausgelagerte Parser-Funktion
-            const date = await page.evaluate(parseDetailInBrowser);
-            ad.uploadDate = date;
-            
-            if (onProgress) onProgress(); // Fortschritt melden
+            // Performance: Unnötiges blockieren
+            await page.setRequestInterception(true);
+            page.on('request', r => {
+                const type = r.resourceType();
+                if (['image', 'stylesheet', 'font', 'media'].includes(type)) r.abort();
+                else r.continue();
+            });
 
-        } catch (e) {
-            ad.uploadDate = 'Unbekannt';
+            while (queue.length > 0) {
+                const targetAd = queue.shift();
+                if (!targetAd) break; 
+
+                let success = false;
+                // Retry Loop (2 Versuche)
+                for (let attempt = 1; attempt <= 2; attempt++) {
+                    if (success) break;
+                    try {
+                        await page.goto(targetAd.url, { waitUntil: 'domcontentloaded', timeout: config.PAGE_TIMEOUT });
+                        
+                        const details = await page.evaluate(parseDetailInBrowser);
+                        if (details) {
+                            // Daten direkt in das Objekt schreiben (Call by Reference)
+                            Object.assign(targetAd, details);
+                            success = true;
+                        }
+                    } catch (e) {
+                        if (attempt === 2) logger.log('warn', `[W${workerId}] Skip ${targetAd.id} nach Fehler.`);
+                        try { await page.goto('about:blank'); } catch(err){}
+                        await new Promise(r => setTimeout(r, 2000));
+                    }
+                }
+                
+                if(success) await new Promise(r => setTimeout(r, config.MIN_DELAY));
+            }
+        } catch(err) {
+            logger.log('error', `Worker ${workerId} Crash: ${err.message}`);
+        } finally {
+            if(page) await page.close().catch(()=>{});
         }
-        
-        // Kurze Pause um nicht geblockt zu werden
-        await new Promise(r => setTimeout(r, 500));
-    }
+    };
 
-    await page.close();
+    // Worker Pool starten
+    const activeWorkers = [];
+    const numWorkers = Math.min(config.CONCURRENT_TABS, queue.length);
+    for(let i=0; i < numWorkers; i++) activeWorkers.push(createWorker(i + 1));
+    
+    await Promise.all(activeWorkers);
 }
 
-module.exports = { startWorker };
+module.exports = { processQueue };
