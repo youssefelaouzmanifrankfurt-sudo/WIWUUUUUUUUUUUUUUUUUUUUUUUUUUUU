@@ -2,95 +2,101 @@
 const fs = require('fs');
 const path = require('path');
 
-// KONFIGURATION PFADE
+// Wir nutzen den Port zur Identifikation, das ist sicherer als Ordner-Checks
+// Port 3000 = IMMER Master (C: Laufwerk)
+// Andere Ports = IMMER Client (Z: Laufwerk)
+const PORT = process.env.PORT || 3000;
+const IS_MASTER = (String(PORT) === '3000');
+
+// Konfiguration der Pfade
 const SERVER_DATA_DIR = 'C:\\weeeeeee_data';
 const CLIENT_DATA_DIR = 'Z:\\'; 
 
-const DB_FILENAME = 'inventory.json';
-const TASKS_FILENAME = 'tasks.json';
-const EXT_FILENAME = 'imported.json';
-const HISTORY_FILENAME = 'history.json';
-const SETTINGS_FILENAME = 'settings.json';
-const STOCK_FILENAME = 'stock.json';
+// Wähle den korrekten Pfad basierend auf der Rolle
+const ACTIVE_PATH = IS_MASTER ? SERVER_DATA_DIR : CLIENT_DATA_DIR;
 
-// Ermittelt den korrekten Pfad zur Laufzeit
-function getBasePath() {
-    // 1. Bin ich der Server?
-    if (fs.existsSync(SERVER_DATA_DIR)) {
-        return SERVER_DATA_DIR;
-    }
-    // 2. Bin ich ein Client? (Netzlaufwerk)
-    // Wir prüfen, ob wir wirklich drauf zugreifen können
-    try {
-        if (fs.existsSync(CLIENT_DATA_DIR)) {
-            return CLIENT_DATA_DIR;
-        }
-    } catch(e) {}
-    
-    // 3. Fallback (Notfall): Lokaler Ordner
-    const localFallback = path.join(__dirname, '../../data');
-    if (!fs.existsSync(localFallback)) fs.mkdirSync(localFallback, { recursive: true });
-    return localFallback;
-}
-
-// Pfad einmalig ermitteln und anzeigen
-const ACTIVE_PATH = getBasePath();
-const MODE = (ACTIVE_PATH === SERVER_DATA_DIR) ? "SERVER (Master)" : 
-             (ACTIVE_PATH === CLIENT_DATA_DIR) ? "CLIENT (Worker Z:)" : "LOKAL (Fallback - Z: fehlt!)";
+const MODE = IS_MASTER ? "SERVER (Master)" : "CLIENT (Worker)";
 
 console.log("------------------------------------------------");
-console.log(`[STORAGE] Speicherort: ${ACTIVE_PATH}`);
 console.log(`[STORAGE] Modus:       ${MODE}`);
+console.log(`[STORAGE] Speicherort: ${ACTIVE_PATH}`);
 console.log("------------------------------------------------");
 
-const getDbPath = () => path.join(ACTIVE_PATH, DB_FILENAME);
-const getTasksPath = () => path.join(ACTIVE_PATH, TASKS_FILENAME);
-const getExtPath = () => path.join(ACTIVE_PATH, EXT_FILENAME);
-const getHistoryPath = () => path.join(ACTIVE_PATH, HISTORY_FILENAME);
-const getSettingsPath = () => path.join(ACTIVE_PATH, SETTINGS_FILENAME);
-const getStockPath = () => path.join(ACTIVE_PATH, STOCK_FILENAME);
+// Dateinamen
+const DB_PATH = path.join(ACTIVE_PATH, 'inventory.json');
+const HISTORY_PATH = path.join(ACTIVE_PATH, 'history.json');
+const STOCK_PATH = path.join(ACTIVE_PATH, 'stock.json');
+const TASKS_PATH = path.join(ACTIVE_PATH, 'tasks.json');
+const SETTINGS_PATH = path.join(ACTIVE_PATH, 'settings.json');
+const IMPORTS_PATH = path.join(ACTIVE_PATH, 'imported.json');
 
-function init() {
+// Helper: Initiale Datei erstellen (Nur Master darf schreiben wenn sie fehlt!)
+function ensureFile(filePath, defaultData = []) {
+    // Wenn wir Master sind, erstellen wir den Ordner falls er fehlt
+    if (IS_MASTER && !fs.existsSync(ACTIVE_PATH)) {
+        try { fs.mkdirSync(ACTIVE_PATH, { recursive: true }); } catch(e) {}
+    }
+
+    if (!fs.existsSync(filePath)) {
+        if (IS_MASTER) {
+            // Master erstellt die Datei
+            try {
+                fs.writeFileSync(filePath, JSON.stringify(defaultData, null, 2));
+            } catch (e) {
+                console.error("[STORAGE] Fehler beim Erstellen von " + filePath, e.message);
+            }
+        } else {
+            // Client wartet (darf nicht erstellen, sonst Konfliktpotenzial)
+            console.warn(`[STORAGE] Warte auf Master-DB: ${filePath} nicht gefunden.`);
+            return defaultData; 
+        }
+    }
+    
     try {
-        if (!fs.existsSync(getDbPath())) fs.writeFileSync(getDbPath(), '[]');
-        if (!fs.existsSync(getTasksPath())) fs.writeFileSync(getTasksPath(), '[]');
-        if (!fs.existsSync(getExtPath())) fs.writeFileSync(getExtPath(), '[]');
-        if (!fs.existsSync(getHistoryPath())) fs.writeFileSync(getHistoryPath(), '[]');
-        if (!fs.existsSync(getSettingsPath())) fs.writeFileSync(getSettingsPath(), '{}');
-        if (!fs.existsSync(getStockPath())) fs.writeFileSync(getStockPath(), '[]');
-    } catch (e) { 
-        console.error("[STORAGE ERROR] Init fehlgeschlagen:", e.message); 
+        const data = fs.readFileSync(filePath, 'utf8');
+        return data ? JSON.parse(data) : defaultData;
+    } catch (e) {
+        console.error("[STORAGE] Lesefehler: " + filePath, e.message);
+        return defaultData;
     }
 }
 
-// --- LADE / SPEICHER FUNKTIONEN ---
+function saveFile(filePath, data) {
+    try {
+        // Backup Logic (nur Master, 5% Wahrscheinlichkeit)
+        if (IS_MASTER && Math.random() > 0.95) {
+            fs.copyFileSync(filePath, filePath + '.bak');
+        }
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+        return true;
+    } catch (e) {
+        console.error("[STORAGE] Schreibfehler: " + filePath, e.message);
+        return false;
+    }
+}
 
-const loadDB = () => { try { const p = getDbPath(); return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf-8')) : []; } catch (e) { return []; } };
-const saveDB = (data) => { try { fs.writeFileSync(getDbPath(), JSON.stringify(data, null, 2)); return true; } catch (e) { return false; } };
-
-const loadTasks = () => { try { const p = getTasksPath(); return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf-8')) : []; } catch (e) { return []; } };
-const saveTasks = (data) => { try { fs.writeFileSync(getTasksPath(), JSON.stringify(data, null, 2)); } catch (e) {} };
-
-const loadExternal = () => { try { const p = getExtPath(); return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf-8')) : []; } catch (e) { return []; } };
-const saveExternal = (data) => { try { fs.writeFileSync(getExtPath(), JSON.stringify(data, null, 2)); } catch (e) {} };
-
-const loadHistory = () => { try { const p = getHistoryPath(); return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf-8')) : []; } catch (e) { return []; } };
-const saveHistory = (data) => { try { fs.writeFileSync(getHistoryPath(), JSON.stringify(data, null, 2)); } catch (e) {} };
-
-const loadSettings = () => { try { const p = getSettingsPath(); return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf-8')) : {}; } catch (e) { return {}; } };
-const saveSettings = (data) => { try { fs.writeFileSync(getSettingsPath(), JSON.stringify(data, null, 2)); } catch (e) {} };
-
-const loadStock = () => { try { const p = getStockPath(); return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf-8')) : []; } catch (e) { return []; } };
-const saveStock = (data) => { try { fs.writeFileSync(getStockPath(), JSON.stringify(data, null, 2)); } catch (e) {} };
-
-init();
+// --- PUBLIC API ---
 
 module.exports = {
-    loadDB, saveDB,
-    loadTasks, saveTasks,
-    loadExternal, saveExternal,
-    loadHistory, saveHistory,
-    loadSettings, saveSettings,
-    loadStock, saveStock,
-    getDbPath
+    getDbPath: () => DB_PATH,
+    getDataDir: () => ACTIVE_PATH,
+
+    // Datenbanken laden
+    loadDB: () => ensureFile(DB_PATH),
+    saveDB: (data) => saveFile(DB_PATH, data),
+
+    loadHistory: () => ensureFile(HISTORY_PATH),
+    saveHistory: (data) => saveFile(HISTORY_PATH, data),
+
+    loadStock: () => ensureFile(STOCK_PATH),
+    saveStock: (data) => saveFile(STOCK_PATH, data),
+
+    loadTasks: () => ensureFile(TASKS_PATH),
+    saveTasks: (data) => saveFile(TASKS_PATH, data),
+
+    loadSettings: () => ensureFile(SETTINGS_PATH, {}),
+    saveSettings: (data) => saveFile(SETTINGS_PATH, data),
+    
+    loadExternal: () => ensureFile(IMPORTS_PATH),
+    saveExternal: (data) => saveFile(IMPORTS_PATH, data)
 };
