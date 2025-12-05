@@ -58,11 +58,35 @@ module.exports = (io, socket) => {
         }
     });
 
-    // DB Match Suche
+    // DB Match Suche (Automatisch)
     socket.on('request-db-match', (stockId) => {
         const item = stockService.getAll().find(i => i.id === stockId);
         if (!item) return;
         const candidates = matchService.findMatchesForStockItem(item.title);
         socket.emit('db-match-result', { found: true, stockId, candidates });
+    });
+
+    // NEU: Manuelle DB Suche für Verknüpfung
+    socket.on('search-db-for-link', (query) => {
+        const allAds = inventoryService.getAll();
+        const term = query.toLowerCase();
+        
+        // Filtern nach Titel oder ID
+        const results = allAds.filter(ad => 
+            (ad.title && ad.title.toLowerCase().includes(term)) || 
+            (ad.id && ad.id.includes(term))
+        ).slice(0, 20); // Limitieren auf 20
+
+        // Formatieren für Frontend
+        const candidates = results.map(ad => ({
+            id: ad.id,
+            title: ad.title,
+            price: ad.price,
+            status: ad.status || (ad.active ? 'ACTIVE' : 'INACTIVE'),
+            image: getBestImage(ad),
+            score: null // Kein Score, da manuell gesucht
+        }));
+
+        socket.emit('db-match-search-results', candidates);
     });
 };

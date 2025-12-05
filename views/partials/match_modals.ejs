@@ -2,18 +2,23 @@
     <div class="modal-box">
         <h2 class="modal-title" style="text-align:center;">Verbindung herstellen</h2>
         
-        <p style="text-align:center; color:#94a3b8; font-size:0.9rem; margin-bottom:10px;">
-            Wähle eine Anzeige aus oder erstelle eine neue:
+        <div style="margin-bottom: 10px; position: relative;">
+            <input type="text" id="match-search" placeholder="🔍 Manuell suchen..." 
+                   style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: white; font-size: 1rem; outline: none;">
+        </div>
+        
+        <p style="text-align:center; color:#94a3b8; font-size:0.8rem; margin-bottom:5px;">
+            Vorschläge & Suchergebnisse:
         </p>
         
         <div id="match-candidates-list" style="max-height:250px; overflow-y:auto; background:#0f172a; border-radius:8px; margin-bottom:15px; padding:5px; border:1px solid #334155;">
             </div>
 
         <button id="btn-auto-create-ad" class="btn-secondary" style="width:100%; margin-bottom:10px; background:#3b82f6; font-weight:bold; padding:12px;">
-            ✨ Nicht dabei? -> Neu Inserieren
+            ✨ Nichts gefunden? -> Neu Inserieren
         </button>
 
-        <button onclick="closeAllModals()" class="btn-mini" style="width:100%; border:none; opacity:0.7;">Abbrechen</button>
+        <button onclick="closeAllModals()" class="btn-mini" style="width:100%; border:none; opacity:0.7; padding: 12px;">Abbrechen</button>
     </div>
 </div>
 
@@ -23,7 +28,6 @@
         
         <div style="margin: 30px 0;">
             <div id="loading-spinner" style="font-size: 4rem; margin-bottom: 15px; animation: pulse 1.5s infinite;">⏳</div>
-            
             <p id="loading-text" style="font-size: 1.2rem; font-weight: bold; color: white;">Wird gescrapt...</p>
             <p id="loading-subtext" style="font-size: 0.9rem; color: #94a3b8;">Bitte warten, Daten werden von der Quelle geholt.</p>
         </div>
@@ -71,7 +75,6 @@
 </div>
 
 <style>
-/* Kleine Animation für den Spinner */
 @keyframes pulse {
     0% { transform: scale(1); opacity: 1; }
     50% { transform: scale(1.1); opacity: 0.7; }

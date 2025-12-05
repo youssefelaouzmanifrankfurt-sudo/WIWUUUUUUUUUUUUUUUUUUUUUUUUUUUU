@@ -34,41 +34,20 @@ socket.on('price-search-results', (results) => {
     if(window.renderPriceResults) window.renderPriceResults(results);
 });
 
+// MATCH: Ergebnis der automatischen Suche
 socket.on('db-match-result', (res) => {
     currentCheckId = res.stockId;
-    const listContainer = document.getElementById('match-candidates-list');
-    if(listContainer) {
-        listContainer.innerHTML = ''; 
-        if (res.candidates && res.candidates.length > 0) {
-            res.candidates.forEach(cand => {
-                const score = Math.round(cand.score * 100);
-                const color = score > 80 ? '#10b981' : '#f59e0b';
-                
-                const el = document.createElement('div');
-                el.className = 'match-candidate';
-                el.style = "display:flex; align-items:center; padding:10px; border-bottom:1px solid #334155; cursor:pointer;";
-                el.innerHTML = `
-                    <img src="${cand.image || '/img/placeholder.png'}" style="width:40px; height:40px; object-fit:cover; margin-right:10px; border-radius:4px; background:#fff;">
-                    <div style="flex:1;">
-                        <div style="font-weight:bold; font-size:0.95rem; color:#fff;">${cand.title}</div>
-                        <div style="font-size:0.8rem; color:#94a3b8;">${cand.status} • ${cand.price || 'VB'}</div>
-                    </div>
-                    <div style="background:${color}; color:white; padding:2px 8px; border-radius:12px; font-size:0.8rem; font-weight:bold;">${score}%</div>
-                `;
-                el.onclick = () => {
-                    if(confirm(`Mit "${cand.title}" verbinden?`)) {
-                        socket.emit('confirm-link', { stockId: currentCheckId, adId: cand.id, adImage: cand.image });
-                        window.closeAllModals();
-                    }
-                };
-                listContainer.appendChild(el);
-            });
-        } else {
-            listContainer.innerHTML = '<div style="padding:30px; text-align:center; color:#64748b;">Keine ähnliche Anzeige gefunden.</div>';
-        }
-    }
     
-    // Auto Create Event
+    // Leere das Suchfeld beim Öffnen
+    const searchInput = document.getElementById('match-search');
+    if (searchInput) searchInput.value = "";
+
+    // Benutze die neue Render-Funktion aus ui.js
+    if (window.renderMatchCandidates) {
+        window.renderMatchCandidates(res.candidates, currentCheckId, socket);
+    }
+
+    // Setup Auto Create Button
     const btnCreate = document.getElementById('btn-auto-create-ad');
     if(btnCreate) {
         btnCreate.onclick = () => {
@@ -81,6 +60,30 @@ socket.on('db-match-result', (res) => {
     const modal = document.getElementById('match-modal');
     if(modal) modal.classList.add('open');
 });
+
+// MATCH: Ergebnis der MANUELLEN Suche
+socket.on('db-match-search-results', (results) => {
+    if (window.renderMatchCandidates && currentCheckId) {
+        window.renderMatchCandidates(results, currentCheckId, socket);
+    }
+});
+
+// MATCH: Suche Event Listener
+const matchSearchInput = document.getElementById('match-search');
+if(matchSearchInput) {
+    let timeout = null;
+    matchSearchInput.addEventListener('input', (e) => {
+        const val = e.target.value;
+        clearTimeout(timeout);
+        
+        // Verzögerung, damit wir den Server nicht bei jedem Buchstaben nerven
+        timeout = setTimeout(() => {
+            if(val.length > 1) {
+                socket.emit('search-db-for-link', val);
+            }
+        }, 300);
+    });
+}
 
 // --- FEEDBACK ---
 socket.on('export-progress', (msg) => window.showLoading("Verarbeite...", msg, true));
